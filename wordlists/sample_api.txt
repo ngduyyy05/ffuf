@@ -1,0 +1,7 @@
+# Sample API endpoint wordlist
+/api/users
+/api/users/{id}
+/api/admin
+/api/orders/{id}
+/api/invoices/{id}
+/api/health
