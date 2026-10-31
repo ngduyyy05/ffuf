@@ -14,7 +14,8 @@ systems without written authorization.
 ## Install
 
 ```bash
-cd api-endpoint-fuzzer
+git clone https://github.com/ngduyyy05/ffuf.git
+cd ffuf
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -79,21 +80,51 @@ The analyzer flags responses when it sees:
 
 - HTTP `200`, `201`, `202`, or `204`
 - HTTP `401` or `403`, which may indicate an existing protected endpoint
-- HTTP `500`, which may indicate a server-side error path
+- HTTP `5xx`, which may indicate a server-side error path
 - Response length that differs significantly from the baseline 404 response
-- `Content-Type` containing `application/json`
+- JSON media types (`application/json` and `+json`)
 - Sensitive-looking response keywords such as `id`, `user`, `email`, `role`,
   `admin`, `token`, `secret`, `order`, or `invoice`
 
 ## IDOR Heuristic
 
-For templates such as `/api/users/{id}` or `/api/orders/{id}`, the tool sends
+Explicit 404/410 responses and responses identical to the method's random-path
+baseline are excluded from interesting endpoints. Dynamic fallback pages can
+still require manual review. Baselines are collected separately for each method;
+the report's `baseline` field retains the first successful baseline for compatibility.
+
+For GET templates such as `/api/users/{id}` or `/api/orders/{id}`, the tool sends
 requests for multiple IDs. It marks `Potential IDOR` when several different IDs
-return HTTP 200 and the body, length, or owner-like JSON fields (`id`, `user_id`,
+return HTTP 200 and the body, length, or owner-like JSON fields (`user_id`,
 `owner_id`) differ.
 
 This is a signal, not proof. The tool does not exploit deeper flows or bypass
 authorization. A human tester must validate whether access is unauthorized.
+Public resources also produce this signal. Resource `id` is not treated as an
+owner field. Baseline matches are excluded from IDOR candidate groups.
+
+## Request bodies and input validation
+
+Use `--data` or `--data-file payload.json` for a raw UTF-8 body on
+POST/PUT/PATCH/DELETE. Set the appropriate Content-Type yourself:
+
+```bash
+python main.py --base-url http://127.0.0.1:5000 --wordlist wordlists/sample_api.txt --ids 1-3 --methods POST --header "Content-Type: application/json" --data-file payload.json
+```
+
+Bodies are sent unchanged; `{id}` substitution applies only to wordlist paths.
+HEAD is also supported. IDs are URL-encoded as values. Wordlists must contain
+relative paths, cannot change the target origin, and are deduplicated. A base
+URL path prefix is preserved, so `/users` with base `http://localhost/api/`
+requests `http://localhost/api/users`. Redirects are not followed.
+Timeout and rate limit must be positive finite values. Rate limiting includes
+baseline requests. Templates containing `{id}` require IDs.
+
+Run the regression suite, including a local HTTP lab integration:
+
+```bash
+python -m pytest -q
+```
 
 ## Reports
 
@@ -127,12 +158,12 @@ orders owned by another user by changing the ID.
 - The IDOR check is heuristic and can produce false positives.
 - It does not understand application-specific authorization models.
 - It does not crawl JavaScript, OpenAPI specs, or links.
-- It sends simple requests only; request bodies are not fuzzed yet.
+- Request bodies are static; body fields are not fuzzed yet.
 - It is not a replacement for manual testing or scoped methodology.
 
 ## Roadmap
 
-- Request body templates for POST/PUT/PATCH
+- Request body placeholder templates for POST/PUT/PATCH
 - OpenAPI import
 - Per-route baseline comparison
 - Better authentication profiles

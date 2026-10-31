@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import math
 import time
 from typing import Any
 
@@ -9,6 +11,7 @@ from requests import Response
 from requests.exceptions import ConnectionError, InvalidURL, RequestException, Timeout
 
 from .utils import LOGGER_NAME, RequestResult, make_preview
+from .analyzer import ResponseAnalyzer
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -20,8 +23,12 @@ class ApiRequester:
         cookie: str | None = None,
         timeout: float = 8.0,
         user_agent: str = "APIEndpointFuzzer/0.1 (authorized-security-lab)",
+        body: str | None = None,
     ) -> None:
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a positive finite number")
         self.timeout = timeout
+        self.body = body
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": user_agent})
         if headers:
@@ -44,6 +51,7 @@ class ApiRequester:
                 url=url,
                 timeout=self.timeout,
                 allow_redirects=False,
+                data=self.body if method in {"POST", "PUT", "PATCH", "DELETE"} else None,
             )
             elapsed_ms = (time.perf_counter() - started) * 1000
             return self._to_result(
@@ -86,7 +94,7 @@ class ApiRequester:
         text = response.text or ""
         json_body: Any | None = None
         content_type = response.headers.get("Content-Type", "")
-        if "application/json" in content_type.lower():
+        if ResponseAnalyzer.is_json(content_type):
             try:
                 json_body = response.json()
             except ValueError:
@@ -105,4 +113,8 @@ class ApiRequester:
             response_time_ms=round(elapsed_ms, 2),
             preview=make_preview(text),
             json_body=json_body,
+            body_sha256=hashlib.sha256(response.content or b"").hexdigest(),
         )
+
+    def close(self) -> None:
+        self.session.close()

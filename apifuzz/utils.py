@@ -5,7 +5,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, quote
 
 LOGGER_NAME = "apifuzz"
 
@@ -27,6 +27,8 @@ class RequestResult:
     json_body: Any | None = None
     interesting: bool = False
     reasons: list[str] = field(default_factory=list)
+    body_sha256: str = ""
+    matches_baseline: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -54,13 +56,27 @@ def configure_logging(verbose: bool = False) -> None:
 
 
 def normalize_base_url(base_url: str) -> str:
-    if not base_url.startswith(("http://", "https://")):
-        raise ValueError("base URL must start with http:// or https://")
+    parts = urlsplit(base_url)
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        raise ValueError("base URL must be an absolute http:// or https:// URL")
+    if parts.username is not None or parts.password is not None or parts.query or parts.fragment:
+        raise ValueError("base URL cannot contain credentials, query, or fragment")
+    try:
+        parts.port
+    except ValueError as exc:
+        raise ValueError("invalid base URL port") from exc
     return base_url.rstrip("/") + "/"
 
 
 def build_url(base_url: str, path: str) -> str:
-    return urljoin(normalize_base_url(base_url), path.lstrip("/"))
+    base = normalize_base_url(base_url)
+    parts = urlsplit(path)
+    if parts.scheme or parts.netloc or path.startswith("//") or "\\" in path or parts.fragment:
+        raise ValueError(f"wordlist entry must be a relative path: {path!r}")
+    url = urljoin(base, path.lstrip("/"))
+    if urlsplit(url).netloc != urlsplit(base).netloc:
+        raise ValueError("path escapes target origin")
+    return url
 
 
 def load_wordlist(path: str | Path) -> list[str]:
@@ -73,19 +89,23 @@ def load_wordlist(path: str | Path) -> list[str]:
         item = line.strip()
         if not item or item.startswith("#"):
             continue
+        build_url("http://validation.local/", item)
         if not item.startswith("/"):
             item = "/" + item
-        entries.append(item)
+        if item not in entries:
+            entries.append(item)
+    if not entries:
+        raise ValueError("wordlist contains no paths")
     return entries
 
 
 def parse_methods(value: str) -> list[str]:
-    allowed = {"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}
+    allowed = {"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}
     methods = [method.strip().upper() for method in value.split(",") if method.strip()]
     invalid = sorted(set(methods) - allowed)
     if invalid:
         raise ValueError(f"unsupported methods: {', '.join(invalid)}")
-    return methods or ["GET"]
+    return list(dict.fromkeys(methods)) or ["GET"]
 
 
 def parse_header_values(values: list[str] | None) -> dict[str, str]:
@@ -99,8 +119,8 @@ def parse_header_values(values: list[str] | None) -> dict[str, str]:
         name, value = raw.split(":", 1)
         name = name.strip()
         value = value.strip()
-        if not name:
-            raise ValueError("header name cannot be empty")
+        if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) or "\r" in value or "\n" in value:
+            raise ValueError("invalid header name or value")
         headers[name] = value
     return headers
 
@@ -149,7 +169,7 @@ def expand_path(path_template: str, ids: list[str]) -> list[tuple[str, dict[str,
 
     expanded: list[tuple[str, dict[str, str]]] = []
     for item in ids:
-        expanded.append((path_template.replace("{id}", item), {"id": item}))
+        expanded.append((path_template.replace("{id}", quote(item, safe="")), {"id": item}))
     return expanded
 
 

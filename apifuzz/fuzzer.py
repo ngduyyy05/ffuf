@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from dataclasses import dataclass
@@ -35,16 +36,26 @@ class ApiFuzzer:
         self.methods = methods
         self.requester = requester
         self.ids = ids or []
-        self.rate_limit = max(rate_limit, 0.1)
+        if not math.isfinite(rate_limit) or rate_limit <= 0:
+            raise ValueError("rate limit must be a positive finite number")
+        self.rate_limit = rate_limit
+        self._last_request: float | None = None
+
+    def _pace(self) -> None:
+        if self._last_request is not None:
+            time.sleep(max(0, 1 / self.rate_limit - (time.monotonic() - self._last_request)))
+        self._last_request = time.monotonic()
 
     def run(self) -> FuzzRunResult:
-        baseline = self._get_baseline()
-        analyzer = ResponseAnalyzer(build_baseline_from_result(baseline) if baseline else None)
+        baseline = None
 
         results: list[RequestResult] = []
-        delay = 1.0 / self.rate_limit
 
         for method in self.methods:
+            method_baseline = self._get_baseline(method)
+            if baseline is None:
+                baseline = method_baseline
+            analyzer = ResponseAnalyzer(build_baseline_from_result(method_baseline) if method_baseline else None)
             for path_template in self.paths:
                 expanded_items = expand_path(path_template, self.ids)
                 if not expanded_items:
@@ -53,6 +64,7 @@ class ApiFuzzer:
 
                 for expanded_path, placeholder_values in expanded_items:
                     url = build_url(self.base_url, expanded_path)
+                    self._pace()
                     result = self.requester.request(
                         method=method,
                         url=url,
@@ -62,16 +74,16 @@ class ApiFuzzer:
                     )
                     analyzer.analyze(result)
                     results.append(result)
-                    time.sleep(delay)
 
         idor_findings = detect_idor_findings(results)
         return FuzzRunResult(results=results, idor_findings=idor_findings, baseline=baseline)
 
-    def _get_baseline(self) -> RequestResult | None:
+    def _get_baseline(self, method: str = "GET") -> RequestResult | None:
         path = f"/__apifuzz_not_found_{uuid.uuid4().hex}"
         url = build_url(self.base_url, path)
+        self._pace()
         result = self.requester.request(
-            method="GET",
+            method=method,
             url=url,
             path_template=path,
             expanded_path=path,

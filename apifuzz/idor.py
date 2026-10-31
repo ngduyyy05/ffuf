@@ -8,10 +8,12 @@ from typing import Any
 from .analyzer import extract_json_field
 from .utils import IdorFinding, RequestResult
 
-OWNER_FIELDS = ("id", "user_id", "owner_id")
+OWNER_FIELDS = ("user_id", "owner_id")
 
 
 def _body_fingerprint(result: RequestResult) -> str:
+    if result.body_sha256:
+        return result.body_sha256
     if result.json_body is not None:
         try:
             raw = json.dumps(result.json_body, sort_keys=True, separators=(",", ":"))
@@ -40,7 +42,7 @@ def detect_idor_findings(results: list[RequestResult]) -> list[IdorFinding]:
             continue
         if not result.placeholder_values.get("id"):
             continue
-        if result.status_code == 200 and not result.error:
+        if result.method in {"GET"} and result.status_code == 200 and not result.error and not result.matches_baseline:
             groups[(result.method, result.path_template)].append(result)
 
     findings: list[IdorFinding] = []
@@ -59,6 +61,7 @@ def detect_idor_findings(results: list[RequestResult]) -> list[IdorFinding]:
 
         evidence_parts = [
             f"{len(unique_ids)} different IDs returned HTTP 200",
+            "authorization not verified; manual access-policy validation required",
         ]
         if len(fingerprints) >= 2:
             evidence_parts.append("response bodies differ")

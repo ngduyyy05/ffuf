@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,7 +9,7 @@ from .utils import RequestResult, safe_lower
 
 SUCCESS_CODES = {200, 201, 202, 204}
 BLOCKED_CODES = {401, 403}
-SERVER_ERROR_CODES = {500}
+SERVER_ERROR_CODES = set(range(500, 600))
 SENSITIVE_KEYWORDS = {
     "id",
     "user",
@@ -27,6 +28,7 @@ class Baseline:
     status_code: int | None = None
     response_length: int = 0
     content_type: str = ""
+    body_sha256: str = ""
 
 
 class ResponseAnalyzer:
@@ -43,13 +45,23 @@ class ResponseAnalyzer:
     def get_reasons(self, result: RequestResult) -> list[str]:
         reasons: list[str] = []
         status = result.status_code
+        if result.error:
+            return []
+        result.matches_baseline = bool(
+            self.baseline.body_sha256 and result.body_sha256
+            and result.body_sha256 == self.baseline.body_sha256
+            and status == self.baseline.status_code
+            and result.content_type == self.baseline.content_type
+        )
+        if result.matches_baseline or status in {404, 410}:
+            return []
 
         if status in SUCCESS_CODES:
             reasons.append(f"success status {status}")
         if status in BLOCKED_CODES:
             reasons.append(f"protected endpoint status {status}")
         if status in SERVER_ERROR_CODES:
-            reasons.append("server error status 500")
+            reasons.append(f"server error status {status}")
         if self.is_json(result.content_type):
             reasons.append("JSON response")
         if self.length_differs_from_baseline(result.response_length):
@@ -63,7 +75,8 @@ class ResponseAnalyzer:
 
     @staticmethod
     def is_json(content_type: str) -> bool:
-        return "application/json" in safe_lower(content_type)
+        media_type = safe_lower(content_type).split(";", 1)[0].strip()
+        return media_type == "application/json" or media_type.endswith("+json")
 
     def length_differs_from_baseline(self, response_length: int) -> bool:
         baseline_length = self.baseline.response_length
@@ -82,7 +95,7 @@ class ResponseAnalyzer:
                 pass
 
         lowered = safe_lower(text)
-        found = sorted(keyword for keyword in SENSITIVE_KEYWORDS if keyword in lowered)
+        found = sorted(keyword for keyword in SENSITIVE_KEYWORDS if re.search(r"(?<![a-z0-9])" + keyword + r"(?![a-z0-9])", lowered))
         return found
 
 
@@ -91,6 +104,7 @@ def build_baseline_from_result(result: RequestResult) -> Baseline:
         status_code=result.status_code,
         response_length=result.response_length,
         content_type=result.content_type,
+        body_sha256=result.body_sha256,
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 from pathlib import Path
 
 from .fuzzer import ApiFuzzer
@@ -30,6 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--csv-output", help="CSV report path")
     parser.add_argument("--md-output", help="Markdown report path")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    body = parser.add_mutually_exclusive_group()
+    body.add_argument("--data", help="Raw request body for POST/PUT/PATCH/DELETE")
+    body.add_argument("--data-file", help="UTF-8 file containing a raw request body")
     return parser
 
 
@@ -44,11 +48,17 @@ def main(argv: list[str] | None = None) -> int:
         methods = parse_methods(args.methods)
         ids = parse_ids(args.ids, args.ids_file)
         headers = parse_header_values(args.header)
-    except (ValueError, FileNotFoundError) as exc:
+        for name, value in (("timeout", args.timeout), ("rate limit", args.rate_limit)):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a positive finite number")
+        body = Path(args.data_file).read_text(encoding="utf-8") if args.data_file else args.data
+        if any("{id}" in path for path in paths) and not ids:
+            raise ValueError("wordlist contains {id}; provide --ids or --ids-file")
+    except (ValueError, OSError) as exc:
         parser.error(str(exc))
         return 2
 
-    requester = ApiRequester(headers=headers, cookie=args.cookie, timeout=args.timeout)
+    requester = ApiRequester(headers=headers, cookie=args.cookie, timeout=args.timeout, body=body)
     fuzzer = ApiFuzzer(
         base_url=base_url,
         paths=paths,
@@ -59,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     logger.info("starting scan: base_url=%s paths=%d methods=%s ids=%d", base_url, len(paths), ",".join(methods), len(ids))
-    run = fuzzer.run()
+    try:
+        run = fuzzer.run()
+    except KeyboardInterrupt:
+        logger.warning("scan interrupted")
+        return 130
+    finally:
+        requester.close()
     print_terminal_report(run)
 
     if args.output:
