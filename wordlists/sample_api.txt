@@ -3,5 +3,6 @@
 /api/users/{id}
 /api/admin
 /api/orders/{id}
+/api/private-orders/{id}
 /api/invoices/{id}
 /api/health

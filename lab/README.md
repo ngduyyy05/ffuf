@@ -1,28 +1,19 @@
-# Demo Lab API
+﻿# Local training lab
 
-This Flask app is intentionally simple and intentionally vulnerable. Use it only
-for local learning, CTF-style practice, and tool testing.
+Run `python lab/app.py` after installing the development dependencies. The lab
+binds to `127.0.0.1:5000`, without the Flask debugger. Never expose it publicly.
 
-## Run
+- `/api/users` and `/api/users/<id>`: public demo users.
+- `/api/orders/<id>`: intentionally vulnerable; X-Lab-User selects viewer metadata,
+  but ownership is not enforced. Missing/invalid headers fall back to viewer 1.
+- `/api/private-orders/<id>`: authenticated control; X-Lab-User must be 1, 2 or 3.
+  Missing/invalid authentication returns 401, another user's order returns 403,
+  and an unknown order returns 404. Owner gets HTTP 200.
+- `/api/admin`: requires `Authorization: Bearer admin-token`, otherwise 403.
+- `/api/health`: health JSON; `/api/broken`: deliberate HTTP 500.
 
-```bash
-python -m venv .venv
-pip install -r requirements.txt
-python lab/app.py
-```
-
-The API listens on `http://127.0.0.1:5000`.
-
-## Endpoints
-
-- `GET /api/users`
-- `GET /api/users/1`
-- `GET /api/users/2`
-- `GET /api/users/3`
-- `GET /api/admin`
-- `GET /api/orders/1`
-- `GET /api/orders/2`
-
-`/api/orders/<id>` simulates an IDOR issue: a normal user can request another
-user's order by changing the numeric ID. Send `X-Lab-User: 1` to represent a
-regular user.
+Use `examples/profiles.json` for Alice/Bob test principals and explicit expected
+permissions. Vulnerable order responses contain viewer metadata, so conservative
+exact-body confirmation may leave them as Potential IDOR. Local automated tests
+also provide a stable-body vulnerable fixture to verify confirmed findings.
+See the root README for full commands, classification rules and limitations.

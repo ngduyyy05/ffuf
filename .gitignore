@@ -9,3 +9,12 @@ reports/
 
 .env
 .env.*
+.venv-audit/
+.coverage
+htmlcov/
+coverage.xml
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+auth-profiles.local.json

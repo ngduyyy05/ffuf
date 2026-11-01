@@ -48,7 +48,8 @@ class ResponseAnalyzer:
         if result.error:
             return []
         result.matches_baseline = bool(
-            self.baseline.body_sha256 and result.body_sha256
+            self.baseline.body_sha256
+            and result.body_sha256
             and result.body_sha256 == self.baseline.body_sha256
             and status == self.baseline.status_code
             and result.content_type == self.baseline.content_type
@@ -91,11 +92,15 @@ class ResponseAnalyzer:
         if result.json_body is not None:
             try:
                 text += " " + json.dumps(result.json_body, sort_keys=True)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, RecursionError):
                 pass
 
         lowered = safe_lower(text)
-        found = sorted(keyword for keyword in SENSITIVE_KEYWORDS if re.search(r"(?<![a-z0-9])" + keyword + r"(?![a-z0-9])", lowered))
+        found = sorted(
+            keyword
+            for keyword in SENSITIVE_KEYWORDS
+            if re.search(r"(?<![a-z0-9])" + keyword + r"(?![a-z0-9])", lowered)
+        )
         return found
 
 
@@ -109,16 +114,15 @@ def build_baseline_from_result(result: RequestResult) -> Baseline:
 
 
 def extract_json_field(json_body: Any, field_name: str) -> Any | None:
-    if isinstance(json_body, dict):
-        if field_name in json_body:
-            return json_body[field_name]
-        for value in json_body.values():
-            nested = extract_json_field(value, field_name)
-            if nested is not None:
-                return nested
-    if isinstance(json_body, list):
-        for item in json_body:
-            nested = extract_json_field(item, field_name)
-            if nested is not None:
-                return nested
+    pending = [json_body]
+    visited = 0
+    while pending and visited < 10000:
+        item = pending.pop()
+        visited += 1
+        if isinstance(item, dict):
+            if field_name in item:
+                return item[field_name]
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
     return None

@@ -11,8 +11,22 @@ USERS = {
 }
 
 ORDERS = {
-    1: {"id": 1, "user_id": 1, "owner_id": 1, "item": "Lab Notebook", "invoice": "INV-001", "total": 25.0},
-    2: {"id": 2, "user_id": 2, "owner_id": 2, "item": "Training Token", "invoice": "INV-002", "total": 99.0},
+    1: {
+        "id": 1,
+        "user_id": 1,
+        "owner_id": 1,
+        "item": "Lab Notebook",
+        "invoice": "INV-001",
+        "total": 25.0,
+    },
+    2: {
+        "id": 2,
+        "user_id": 2,
+        "owner_id": 2,
+        "item": "Training Token",
+        "invoice": "INV-002",
+        "total": 99.0,
+    },
 }
 
 
@@ -58,6 +72,20 @@ def get_order(order_id: int):
     return jsonify(response)
 
 
+@app.get("/api/private-orders/<int:order_id>")
+def private_order(order_id: int):
+    """Control route enforcing both authentication and ownership."""
+    raw = request.headers.get("X-Lab-User", "")
+    if raw not in {str(user_id) for user_id in USERS}:
+        return jsonify({"error": "authentication required"}), 401
+    order = ORDERS.get(order_id)
+    if not order:
+        return jsonify({"error": "order not found"}), 404
+    if order["owner_id"] != int(raw):
+        return jsonify({"error": "not your order"}), 403
+    return jsonify(order)
+
+
 @app.get("/api/health")
 def health():
     return jsonify({"status": "healthy"})
@@ -69,4 +97,4 @@ def broken():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5000, debug=False)

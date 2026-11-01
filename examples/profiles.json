@@ -1,0 +1,20 @@
+[
+  {
+    "name": "alice",
+    "headers": {"X-Lab-User": "1"},
+    "access": {
+      "/api/orders/{id}": {"allow": ["1"], "deny": ["2"]},
+      "/api/private-orders/{id}": {"allow": ["1"], "deny": ["2"]},
+      "/api/users/{id}": {"public": true}
+    }
+  },
+  {
+    "name": "bob",
+    "headers": {"X-Lab-User": "2"},
+    "access": {
+      "/api/orders/{id}": {"allow": ["2"], "deny": ["1"]},
+      "/api/private-orders/{id}": {"allow": ["2"], "deny": ["1"]},
+      "/api/users/{id}": {"public": true}
+    }
+  }
+]

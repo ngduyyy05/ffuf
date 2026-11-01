@@ -42,7 +42,9 @@ def test_analyzer_marks_success_json_and_keywords():
 
 def test_analyzer_marks_blocked_endpoint():
     analyzer = ResponseAnalyzer(Baseline(status_code=404, response_length=100))
-    result = make_result(path_template="/api/admin", status_code=403, length=100, json_body={"error": "forbidden"})
+    result = make_result(
+        path_template="/api/admin", status_code=403, length=100, json_body={"error": "forbidden"}
+    )
 
     analyzed = analyzer.analyze(result)
 

@@ -1,6 +1,7 @@
 import threading
 
 import pytest
+from test_analyzer import make_result
 from werkzeug.serving import make_server
 
 from apifuzz.analyzer import ResponseAnalyzer, build_baseline_from_result
@@ -9,16 +10,19 @@ from apifuzz.fuzzer import ApiFuzzer
 from apifuzz.requester import ApiRequester
 from apifuzz.utils import build_url, expand_path, normalize_base_url
 from lab.app import app
-from test_analyzer import make_result
 
 
-@pytest.mark.parametrize("path", ["https://other.test/api", "//other.test/api", "\\other.test", "/api#fragment"])
+@pytest.mark.parametrize(
+    "path", ["https://other.test/api", "//other.test/api", "\\other.test", "/api#fragment"]
+)
 def test_reject_external_paths(path):
     with pytest.raises(ValueError):
         build_url("http://localhost/api/", path)
 
 
-@pytest.mark.parametrize("url", ["http://", "http://host:bad", "http://user:pass@host", "http://host?a=1"])
+@pytest.mark.parametrize(
+    "url", ["http://", "http://host:bad", "http://user:pass@host", "http://host?a=1"]
+)
 def test_invalid_targets(url):
     with pytest.raises(ValueError):
         normalize_base_url(url)
@@ -64,14 +68,18 @@ def test_real_http_lab_end_to_end(tmp_path):
         run = ApiFuzzer(
             f"http://127.0.0.1:{server.server_port}",
             ["/api/orders/{id}", "/api/admin", "/api/missing"],
-            ["GET"], requester, ids=["1", "2"], rate_limit=1000,
+            ["GET"],
+            requester,
+            ids=["1", "2"],
+            rate_limit=1000,
         ).run()
         assert len(run.results) == 4
         assert len(run.idor_findings) == 1
         assert "owner_id" in run.idor_findings[0].differing_fields
         assert run.results[2].status_code == 403
         assert not run.results[3].interesting
-        from apifuzz.reporter import write_json, write_csv, write_markdown
+        from apifuzz.reporter import write_csv, write_json, write_markdown
+
         for writer, suffix in [(write_json, "json"), (write_csv, "csv"), (write_markdown, "md")]:
             target = tmp_path / f"report.{suffix}"
             writer(run, target)
